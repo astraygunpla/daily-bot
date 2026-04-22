@@ -225,8 +225,8 @@ async function handleCommand(message, client) {
     // ── !preview-format ─────────────────────────────────────────────────────
     case '!preview-format': {
       const fakeEntry = {
-        displayName: 'Paulo',
-        username: 'astraygunpla',
+        displayName: 'Fulano',
+        username: 'fulano',
         yesterday: '✅ Tarefa A\n🟨 Tarefa B',
         today: 'Finalizar feature X\nRevisar PRs',
         blockers: 'nenhum',

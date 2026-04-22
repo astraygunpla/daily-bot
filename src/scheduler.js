@@ -3,22 +3,25 @@ const { BOT_CONFIG } = require('../config');
 const { sendDailyDMs, collectAnswersForDay, missingUsersReport } = require('./standup');
 const { postDailyStandup } = require('./clickup');
 const { buildDeadlineCron, getDateString } = require('./utils');
+const scheduleStore = require('./scheduleStore');
 
-function initScheduler(client) {
-  const standupCron = BOT_CONFIG.standupTime;
-  const deadlineCron = buildDeadlineCron(standupCron, BOT_CONFIG.deadlineMinutes);
+let standupTask = null;
+let deadlineTask = null;
+let currentClient = null;
+
+function startJobs(standupCron, deadlineMinutes) {
+  const deadlineCron = buildDeadlineCron(standupCron, deadlineMinutes);
   const tz = BOT_CONFIG.timezone;
 
-  console.log(`[Scheduler] Stand-up : ${standupCron} (${tz})`);
-  console.log(`[Scheduler] Deadline : ${deadlineCron} (${tz})`);
+  if (standupTask) standupTask.stop();
+  if (deadlineTask) deadlineTask.stop();
 
-  // ── Daily stand-up trigger ─────────────────────────────────────────────────
-  cron.schedule(
+  standupTask = cron.schedule(
     standupCron,
     async () => {
       console.log('[Scheduler] ⏰ Stand-up time — sending DMs…');
       try {
-        await sendDailyDMs(client);
+        await sendDailyDMs(currentClient);
       } catch (err) {
         console.error('[Scheduler] Error in sendDailyDMs:', err.message);
       }
@@ -26,24 +29,20 @@ function initScheduler(client) {
     { timezone: tz }
   );
 
-  // ── Deadline trigger ───────────────────────────────────────────────────────
-  cron.schedule(
+  deadlineTask = cron.schedule(
     deadlineCron,
     async () => {
       const date = getDateString();
       console.log(`[Scheduler] ⏰ Deadline reached for ${date} — collecting answers…`);
-
       try {
         const { complete, missing } = collectAnswersForDay(date);
         missingUsersReport(date);
 
-        // Post completed answers to ClickUp
         await postDailyStandup(date, complete);
 
-        // Notify users who missed the deadline
         for (const entry of missing) {
           try {
-            const user = await client.users.fetch(entry.userId);
+            const user = await currentClient.users.fetch(entry.userId);
             const dm = await user.createDM();
             await dm.send(
               '⏰ O prazo do stand-up de hoje encerrou e suas respostas não foram registradas a tempo.\n' +
@@ -64,7 +63,21 @@ function initScheduler(client) {
     { timezone: tz }
   );
 
+  console.log(`[Scheduler] Stand-up : ${standupCron} (${tz})`);
+  console.log(`[Scheduler] Deadline : ${deadlineCron} (${tz})`);
   console.log('[Scheduler] Jobs registered.');
 }
 
-module.exports = { initScheduler };
+function initScheduler(client) {
+  currentClient = client;
+  scheduleStore.load();
+  const { standupTime, deadlineMinutes } = scheduleStore.get();
+  startJobs(standupTime, deadlineMinutes);
+}
+
+function reschedule(standupTime, deadlineMinutes) {
+  scheduleStore.set(standupTime, deadlineMinutes);
+  startJobs(standupTime, deadlineMinutes);
+}
+
+module.exports = { initScheduler, reschedule };

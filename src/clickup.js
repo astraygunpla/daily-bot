@@ -1,11 +1,13 @@
 const { CLICKUP_CONFIG } = require('../config');
+const formatStore = require('./formatStore');
 
 // ─── Format helpers ──────────────────────────────────────────────────────────
 
 function formatUserBlock(entry) {
+  const labels = formatStore.getLabels();
   const yesterdayLines = splitLines(entry.yesterday);
   const todayLines = splitLines(entry.today);
-  const blockersText = normalizeBlockers(entry.blockers);
+  const blockersText = normalizeBlockers(entry.blockers, labels.none);
 
   const EMOJI_PREFIX = /^[✅🟨🟫]\s*/u;
 
@@ -18,15 +20,15 @@ function formatUserBlock(entry) {
   return [
     `## 👤 ${entry.displayName} (@${entry.username})`,
     '',
-    `Ontem eu fiz:`,
+    labels.yesterday,
     '',
     yesterdaySection,
     '',
-    `Hoje vou focar em:`,
+    labels.today,
     '',
     todaySection,
     '',
-    `Bloqueios:`,
+    labels.blockers,
     '',
     blockersText,
     '',
@@ -34,22 +36,25 @@ function formatUserBlock(entry) {
 }
 
 function formatPageContent(date, answers) {
-  const header = [
-    `> Gerado automaticamente pelo bot de stand-up.`,
-    '',
-    `---`,
-    '',
-  ].join('\n');
+  const { legend, header } = formatStore.get();
+  const labels = formatStore.getLabels();
 
-  const body = answers.map(formatUserBlock).join('\n---\n\n');
-  const legend = `\n---\n[✅=Feito][🟨=Fazendo][🟫=Não trabalhado]`;
+  const parts = [];
 
-  return header + body + legend;
+  if (header) {
+    parts.push(`> ${labels.autoHeader}`, '', '---', '');
+  }
+
+  parts.push(answers.map(formatUserBlock).join('\n---\n\n'));
+
+  if (legend) {
+    parts.push(`\n---\n${labels.legend}`);
+  }
+
+  return parts.join('\n');
 }
 
 // ─── ClickUp Docs API (v3) ────────────────────────────────────────────────────
-// Creates a new page inside the configured document for each daily stand-up.
-// Endpoint: POST /api/v3/workspaces/{workspaceId}/docs/{docId}/pages
 
 async function postDailyStandup(date, answers) {
   const { apiKey, workspaceId, docId, baseUrl } = CLICKUP_CONFIG;
@@ -64,8 +69,9 @@ async function postDailyStandup(date, answers) {
     return null;
   }
 
+  const { titlePrefix } = formatStore.get();
   const [year, month, day] = date.split('-');
-  const pageTitle = `Stand-up ${day}/${month}/${year}`;
+  const pageTitle = `${titlePrefix} ${day}/${month}/${year}`;
   const content = formatPageContent(date, answers);
 
   const url = `${baseUrl}/workspaces/${workspaceId}/docs/${docId}/pages`;
@@ -103,10 +109,10 @@ function splitLines(text) {
     .filter(Boolean);
 }
 
-function normalizeBlockers(text) {
-  if (!text) return 'Nenhum.';
+function normalizeBlockers(text, noneLabel = 'Nenhum.') {
+  if (!text) return noneLabel;
   const lower = text.toLowerCase().trim();
-  if (['nenhum', 'none', 'n/a', 'não', 'nao'].includes(lower)) return 'Nenhum.';
+  if (['nenhum', 'none', 'n/a', 'não', 'nao'].includes(lower)) return noneLabel;
   return text;
 }
 
